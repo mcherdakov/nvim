@@ -1,3 +1,18 @@
+local org_imports = function(wait_ms)
+  local params = vim.lsp.util.make_range_params()
+  params.context = { only = { "source.organizeImports" } }
+  local result = vim.lsp.buf_request_sync(0, "textDocument/codeAction", params, wait_ms)
+  for _, res in pairs(result or {}) do
+    for _, r in pairs(res.result or {}) do
+      if r.edit then
+        vim.lsp.util.apply_workspace_edit(r.edit, "UTF-16")
+      else
+        vim.lsp.buf.execute_command(r.command)
+      end
+    end
+  end
+end
+
 local on_attach = function(_, bufnr)
   vim.api.nvim_buf_set_option(bufnr, 'omnifunc', 'v:lua.vim.lsp.omnifunc')
 
@@ -12,6 +27,7 @@ local on_attach = function(_, bufnr)
 
   vim.keymap.set("n", "<Leader>rf", vim.lsp.buf.rename, { buffer = bufnr })
   vim.keymap.set("n", "<Leader>rr", "<cmd>Telescope lsp_references<cr>", { buffer = bufnr })
+  vim.keymap.set("n", "<Leader>w", "<cmd>Telescope lsp_workspace_symbols<cr>", { buffer = bufnr })
   vim.keymap.set("n", "<Leader>dd", "<cmd>Telescope diagnostics " .. "root_dir=" .. vim.fn.getcwd() .. "<cr>",
     { buffer = bufnr })
 
@@ -21,9 +37,17 @@ local on_attach = function(_, bufnr)
   -- end, { desc = 'Format current buffer with LSP' })
 
   vim.api.nvim_create_autocmd({ "BufWritePre" }, {
-    pattern = { "*" },
+    pattern = { "*.lua", "*.rs" },
     callback = function()
       vim.lsp.buf.format()
+    end,
+  })
+
+  vim.api.nvim_create_autocmd({ "BufWritePre" }, {
+    pattern = { "*.go" },
+    callback = function()
+      vim.lsp.buf.format({ async = false })
+      org_imports(3000)
     end,
   })
 end
@@ -32,9 +56,13 @@ vim.keymap.set("n", "<leader>lr", "<cmd>LspRestart<cr>")
 
 local servers = {
   gopls = {
-    -- gopls = {
-    --   ['ui.completion.usePlaceholders'] = true,
-    -- }
+    gopls = {
+      -- ['ui.completion.usePlaceholders'] = true,
+      ["build.env"] = {
+        CGO_ENABLED = "1",
+        GOFLAGS = "-tags=integration",
+      },
+    }
   },
   pyright = {},
 
@@ -44,6 +72,36 @@ local servers = {
       telemetry = { enable = false },
     },
   },
+
+  rust_analyzer = {
+    ["rust-analyzer"] = {
+      checkOnSave = {
+        command = "clippy",
+        allFeatures = true,
+        -- extraArgs = { "--no-deps", "--", "-W", "clippy::pedantic" },
+      }
+    },
+  },
+
+  clangd = {},
+
+  hls = {},
+}
+
+local servers_before_init = {
+  gopls = function(_, config)
+    if vim.fn.executable("go") ~= 1 then
+      return
+    end
+
+    local module = vim.fn.trim(vim.fn.system("go list -m"))
+    if vim.v.shell_error ~= 0 then
+      return
+    end
+    module = module:gsub("\n", ",")
+
+    config.settings.gopls["formatting.local"] = module
+  end
 }
 
 -- Setup neovim lua configuration
@@ -67,6 +125,7 @@ mason_lspconfig.setup_handlers {
       on_attach = on_attach,
       settings = servers[server_name],
       filetypes = (servers[server_name] or {}).filetypes,
+      before_init = servers_before_init[server_name] or function(_, _) end,
     }
   end
 }
@@ -90,10 +149,10 @@ cmp.setup({
     ['<C-d>'] = cmp.mapping.scroll_docs(-4),
     ['<C-f>'] = cmp.mapping.scroll_docs(4),
     ['<C-Space>'] = cmp.mapping.complete {},
-    ['<CR>'] = cmp.mapping.confirm {
-      behavior = cmp.ConfirmBehavior.Replace,
-      select = true,
-    },
+    -- ['<CR>'] = cmp.mapping.confirm {
+    --   behavior = cmp.ConfirmBehavior.Replace,
+    --   select = true,
+    -- },
     ['<Tab>'] = cmp.mapping(function(fallback)
       if cmp.visible() then
         cmp.select_next_item()
@@ -133,9 +192,18 @@ cmp.setup({
 })
 
 vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter" }, {
-  pattern = { "*.go" },
+  pattern = { "*.go", "*.sql", "*.brief", "*.json" },
   callback = function()
     vim.bo.tabstop = 4
+    vim.bo.shiftwidth = 0 -- same as tabstop
+    vim.bo.expandtab = true
+  end,
+})
+
+vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter" }, {
+  pattern = { "*.hs" },
+  callback = function()
+    vim.bo.tabstop = 2
     vim.bo.shiftwidth = 0 -- same as tabstop
     vim.bo.expandtab = true
   end,

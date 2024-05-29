@@ -105,6 +105,14 @@ require('lazy').setup({
         component_separators = '|',
         section_separators = '',
       },
+      sections = {
+        lualine_c = {
+          {
+            'filename',
+            path = 1,
+          },
+        }
+      },
     },
   },
 
@@ -155,5 +163,15 @@ require('lazy').setup({
     dependencies = {
       'nvim-tree/nvim-web-devicons',
     },
-  }
+  },
+
+  -- {
+  --   'm4xshen/autoclose.nvim',
+  --   opts = {
+  --     options = {
+  --       pair_spaces = true,
+  --       disable_when_touch = true,
+  --     },
+  --   },
+  -- },
 }, {})
